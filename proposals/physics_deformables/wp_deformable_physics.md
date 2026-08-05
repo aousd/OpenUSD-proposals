@@ -108,28 +108,34 @@ class "PhysicsMaterialAPI"
 
 Three new material APIs are introduced: `UsdPhysicsVolumeDeformableMaterialAPI`, `UsdPhysicsSurfaceDeformableMaterialAPI` and `UsdPhysicsCurvesDeformableMaterialAPI`, each extending `UsdPhysicsMaterialAPI` with properties to specify the deformable behavior.
 
-The USD schema defines fallback values for unauthored attributes. Attributes with physical units depending on distance, time or mass use special fallback values called *sentinel values*, indicating that a suitable default is chosen by the simulator (hereafter referred to as a *simulator default*). This is necessary because appropriate values for such attributes depend on the stage's unit settings.
+The USD schema defines fallback values for unauthored attributes. The USD Physics schemas make use of *sentinel values*, fallback values that lie outside an attribute's defined range. For each attribute with a sentinel fallback, the schema documents how it is to be interpreted.
 
 `UsdPhysicsVolumeDeformableMaterialAPI` introduces the important engineering concepts of Young's modulus and Poisson's ratio as attributes:
 
-- `youngsModulus` has units of mass/(distance·seconds·seconds), equivalent to force/area, a range of [0, inf), and a fallback value of -inf (simulator default).
-- `poissonsRatio` is unitless, has a range of [-1.0, 0.5], and a fallback value of 0.3.
+- `youngsModulus` has units of mass/(distance·seconds·seconds), equivalent to force/area, a range of [0, inf), and a fallback value of -inf. Young's modulus is then assumed to be 10⁶ Pa (kg/(m·s²)), approximately the stiffness of silicone rubber, converted into the stage's units.
+- `poissonsRatio` is unitless, has a range of (-1.0, 0.5], and a fallback value of 0.3.
 
-`UsdPhysicsSurfaceDeformableMaterialAPI` introduces properties for thin shells, including thickness and three distinct stiffness parameters for the deformation modes - stretch, shear, and bend:
+`UsdPhysicsSurfaceDeformableMaterialAPI` introduces properties for thin shells, including thickness, the isotropic material parameters Young's modulus and Poisson's ratio serving as a fallback, and three distinct stiffness parameters, one for each deformation mode - stretch, shear, and bend:
 
-- `thickness` has units of distance, a range of (0, inf), and a fallback value of -inf (simulator default).
-- `stretchStiffness`, `shearStiffness`, `bendStiffness` have units of force/area, a range of [0, inf), and a fallback value of -inf (simulator default).
+- `surfaceThickness` has units of distance, a range of (0, inf), and a fallback value of -inf. The thickness is then assumed to be 10⁻³ m, converted into the stage's units.
+- `youngsModulus` and `poissonsRatio` are as described above for the volume material.
+- `surfaceStretchStiffness` and `surfaceShearStiffness` have units of mass/(seconds·seconds), equivalent to force/distance, a range of [0, inf), and a fallback value of -inf. The stiffnesses are then derived as described in [Volumetric Fallback for Structural Stiffnesses](#volumetric-fallback-for-structural-stiffnesses).
+- `surfaceBendStiffness` has units of mass·distance·distance/(seconds·seconds), equivalent to force·distance, a range of [0, inf), and a fallback value of -inf. The stiffness is then derived as described in [Volumetric Fallback for Structural Stiffnesses](#volumetric-fallback-for-structural-stiffnesses).
 
-`UsdPhysicsCurvesDeformableMaterialAPI` introduces properties for deformable curves, including thickness and four distinct stiffness parameters for the deformation modes - stretch, shear, bend, and twist:
+`UsdPhysicsCurvesDeformableMaterialAPI` introduces properties for deformable curves, including thickness, the isotropic material parameters Young's modulus and Poisson's ratio serving as a fallback, and four distinct stiffness parameters, one for each deformation mode - stretch, shear, bend, and twist:
 
-- `thickness`, `stretchStiffness`, `shearStiffness`, `bendStiffness` as covered above.
-- `twistStiffness` has units of force/area, a range of [0, inf), and a fallback value of -inf (simulator default).
+- `curvesThickness` has units of distance, a range of (0, inf), and a fallback value of -inf. The thickness is then assumed to be 10⁻³ m, converted into the stage's units.
+- `youngsModulus` and `poissonsRatio` are as described above for the volume material.
+- `curvesStretchStiffness` and `curvesShearStiffness` have units of mass·distance/(seconds·seconds), equivalent to force, a range of [0, inf), and a fallback value of -inf. The stiffnesses are then derived as described in [Volumetric Fallback for Structural Stiffnesses](#volumetric-fallback-for-structural-stiffnesses).
+- `curvesBendStiffness` and `curvesTwistStiffness` have units of mass·distance·distance·distance/(seconds·seconds), equivalent to force·area, a range of [0, inf), and a fallback value of -inf. The stiffnesses are then derived as described in [Volumetric Fallback for Structural Stiffnesses](#volumetric-fallback-for-structural-stiffnesses).
 
-`UsdGeomBasisCurves`, the geometry type used for curve deformables, defines a `widths` attribute for rendering. The material's `thickness` parameter is intentionally separate, as the physical thickness that governs simulation behavior often needs to differ from the graphical width.
+`UsdGeomBasisCurves`, the geometry type used for curve deformables, defines a `widths` attribute for rendering. The material's `curvesThickness` parameter is intentionally separate, as the physical thickness that governs simulation behavior often needs to differ from the graphical width.
 
-The `thickness` attribute for surface and curve deformables is needed to compute masses based on material density.
+The `surfaceThickness` and `curvesThickness` attributes are needed to compute masses based on material density, in addition to their role in the volumetric stiffness fallback.
 
-It is permitted to apply multiple physics material APIs to a single material. This makes it possible to use the material on both rigid objects and various types of deformable objects. For example, a general-purpose physics material instance, "rubberMaterial", can be defined by applying `UsdPhysicsMaterialAPI`, `UsdPhysicsVolumeDeformableMaterialAPI`, `UsdPhysicsSurfaceDeformableMaterialAPI` and `UsdPhysicsCurvesDeformableMaterialAPI` in combination. This means that e.g. the dynamic friction parameter has to be the same for rigid and deformable use cases. If this is a problem, the workaround is to create e.g. separate rigidRubber and deformableRubber materials.
+It is permitted to apply multiple physics material APIs to a single material, so that one material can be used on rigid objects and on deformable objects of any type. For example, a general-purpose physics material instance, "rubberMaterial", can be defined by applying `UsdPhysicsMaterialAPI`, `UsdPhysicsVolumeDeformableMaterialAPI`, `UsdPhysicsSurfaceDeformableMaterialAPI` and `UsdPhysicsCurvesDeformableMaterialAPI` in combination.
+
+Because these APIs are applied to the same primitive, their attributes share a single property namespace. A material's dynamic friction is therefore necessarily the same for its rigid and its deformable use. Such sharing is appropriate for the properties whose meaning is independent of the deformable type: friction, density, `youngsModulus` and `poissonsRatio`. Where sharing is too restrictive, separate materials (for example a "rigidRubber" and a "deformableRubber") can be authored instead. Properties whose meaning depends on the deformable type are prefixed accordingly so that they stay distinct and their units remain unambiguous. Thickness is `surfaceThickness` for surfaces and `curvesThickness` for curves, and likewise for the per-mode stiffnesses.
 
 For details on deformable material assignment, see [Assigning Materials](#assigning-materials).
 
@@ -150,10 +156,12 @@ class "PhysicsSurfaceDeformableMaterialAPI"
     prepend apiSchemas = ["PhysicsMaterialAPI"]
 )
 {
-    float physics:thickness = -inf ()
-    float physics:stretchStiffness = -inf ()
-    float physics:shearStiffness = -inf ()
-    float physics:bendStiffness = -inf ()
+    float physics:surfaceThickness = -inf ()
+    float physics:youngsModulus = -inf ()
+    float physics:poissonsRatio = 0.3 ()
+    float physics:surfaceStretchStiffness = -inf ()
+    float physics:surfaceShearStiffness = -inf ()
+    float physics:surfaceBendStiffness = -inf ()
 }
 
 class "PhysicsCurvesDeformableMaterialAPI"
@@ -162,13 +170,50 @@ class "PhysicsCurvesDeformableMaterialAPI"
     prepend apiSchemas = ["PhysicsMaterialAPI"]
 )
 {
-    float physics:thickness = -inf ()
-    float physics:stretchStiffness = -inf ()
-    float physics:shearStiffness = -inf ()
-    float physics:bendStiffness = -inf ()
-    float physics:twistStiffness = -inf ()
+    float physics:curvesThickness = -inf ()
+    float physics:youngsModulus = -inf ()
+    float physics:poissonsRatio = 0.3 ()
+    float physics:curvesStretchStiffness = -inf ()
+    float physics:curvesShearStiffness = -inf ()
+    float physics:curvesBendStiffness = -inf ()
+    float physics:curvesTwistStiffness = -inf ()
 }
 ```
+
+#### Volumetric Fallback for Structural Stiffnesses
+
+Each stiffness may be authored directly, or left unauthored and derived from `youngsModulus` ($E$), `poissonsRatio` ($\nu$) and thickness ($h$) using the isotropic relations below. $E$, $\nu$ and $h$ are themselves either authored or assumed (10⁶ Pa for $E$, 10⁻³ m for $h$, 0.3 for $\nu$), so a derived stiffness always has a well-defined value.
+
+In this derivation, each stiffness is a per-deformation-mode material modulus times a geometric factor set by the shell thickness or rod cross-section. Because the geometric factor depends on thickness, the derived stiffness scales with it, whereas a directly authored stiffness does not.
+
+For surface materials, the moduli follow the classical thin-plate model, valid when the thickness is small relative to the in-plane dimensions (Timoshenko & Woinowsky-Krieger, *Theory of Plates and Shells*, 1959). The plane-stress assumption of the model contributes the additional $1 / (1 - \nu^2)$ factor to the stretch and bend entries.
+
+| Mode | Material modulus | Geometric factor | Structural stiffness |
+|------|------------------|------------------|----------------------|
+| stretch | $E / (1 - \nu^2)$ | $h$ | $E \cdot h / (1 - \nu^2)$ |
+| shear   | $G$ | $h$ | $G \cdot h$ |
+| bend    | $E / (12(1 - \nu^2))$ | $h^3$ | $E \cdot h^3 / (12(1 - \nu^2))$ |
+
+where $E$ is `youngsModulus`, $\nu$ is `poissonsRatio`, $h$ is `surfaceThickness`, and $G = E / (2(1 + \nu))$ is the shear modulus.
+
+For curve materials, the moduli follow classical beam theory for a solid circular cross-section of radius $h/2$ (Timoshenko, *Strength of Materials*, Part I, 3rd ed., 1955). The `curvesShearStiffness` attribute describes transverse shear, the cross-section tilting away from the tangent, unlike the in-plane shear described by `surfaceShearStiffness`. Non-circular cross-sections are not captured and require authoring the affected stiffnesses directly.
+
+| Mode | Material modulus | Geometric factor | Structural stiffness |
+|------|------------------|------------------|----------------------|
+| stretch | $E$ | $A$ | $E \cdot A$ |
+| shear   | $G$ | $A$ ($\times k$) | $k \cdot G \cdot A$ |
+| bend    | $E$ | $I$ | $E \cdot I$ |
+| twist   | $G$ | $J$ | $G \cdot J$ |
+
+where $h$ is `curvesThickness`, $A = \pi h^2 / 4$ is the cross-section area (stretch and shear), $I = \pi h^4 / 64$ is the second moment of area (bend), $J = \pi h^4 / 32$ is the polar moment of area (twist), and $k \approx 0.9$ is a shear correction factor for a circular section.
+
+> **Design Note**
+>
+> The surface and curve stiffnesses may be authored directly, or left unauthored and derived from Young's modulus and Poisson's ratio. Two considerations motivate this volumetric fallback. Young's modulus and Poisson's ratio are commonly tabulated for isotropic materials, whereas the per-deformation-mode stiffnesses may be less readily available. Furthermore, the derivation provides a way to specify the material so that the resulting stiffnesses scale with the authored thickness.
+
+> **Design Note**
+>
+> The stretch, shear, bend and twist parameters are expressed as structural stiffnesses — carrying the units that follow from the stored deformation energy (force/distance and force·distance for surfaces; force and force·area for curves) — rather than as thickness-independent moduli in units of force/area. Exposing them as moduli was considered. Structural stiffnesses were slightly favored, for a few reasons. The volumetric fallback already provides a modulus-based path with thickness scaling for authors who prefer to work from Young's modulus and Poisson's ratio. Physically measuring a concrete object also directly yields its structural stiffnesses. And they are, in general, the quantities a simulator is configured with.
 
 ### Deformable Bodies
 
@@ -278,7 +323,7 @@ In the case of `UsdPhysicsVolumeDeformableSimAPI`, which is intended for tetmesh
 
 This capability is more important in the case of `UsdPhysicsSurfaceDeformableSimAPI`, which is meant to be applied to surface meshes to represent cloth and shells. In modeling cloth, it is very common to define the planar rest shape of sections of the 3D mesh in a disjoint fashion in a 2D material "panel space." The `restShapePoints` attribute of `UsdPhysicsSurfaceDeformableSimAPI` has 3D points, but disjoint sets (w.r.t `restTriVertexIndices`) of these points can be coplanar to support planar rest shape descriptions from panel-based creation tools. Furthermore, this representation allows the description of the planar rest shape that should be compatible with models for 3D shells. As with the volume case, `restTriVertexIndices` may be left empty when the the rest connectivity matches the surface mesh's connectivity exactly, in which case the surface mesh's `faceVertexIndices` is used in its place and `restShapePoints` must contain the same number of points as the surface mesh's `points`.
 
-Thin shells (e.g. cloth) based on triangular meshes also require the definition of the rest dihedral angle for the interior edges of the mesh. Using the mesh of cloth pants as an example, one might want to describe a pleat along a consecutive edge run down the front of each leg. Besides increasing the `bendStiffness` for these edges, the `restBendAngles` for these edges could be set to something like 75 degrees. The assignment of `restBendAngles` is specified via `restAdjTriPairs`, pairs of adjacent triangles the dihedral bend angles refer to.
+Thin shells (e.g. cloth) based on triangular meshes also require the definition of the rest dihedral angle for the interior edges of the mesh. Using the mesh of cloth pants as an example, one might want to describe a pleat along a consecutive edge run down the front of each leg. Besides increasing the `surfaceBendStiffness` for these edges, the `restBendAngles` for these edges could be set to something like 75 degrees. The assignment of `restBendAngles` is specified via `restAdjTriPairs`, pairs of adjacent triangles the dihedral bend angles refer to.
 
 The rest dihedral bend angles that are not explicitly specified are implicitly defined in two selectable ways. The attribute `restBendAnglesDefault` can be set to either `'flat'` or `'restShape'`. The former implies rest dihedral angles of zero degrees, which is useful for simulating cloth, for example. The latter implies rest angles based on the normals of the triangles, as defined by the rest shape points. This method is useful for simulating uneven 3D shells. The fallback value for `restBendAnglesDefault` is `'flat'`.
 
@@ -613,7 +658,7 @@ Collision geometries, tagged with the collision API, are affected by `'surface'`
 - Dynamic friction
 - Static friction
 
-Properties are by default propagated down the object tree to the simulation geometry and collision geometries. Additionally, materials can be bound to `UsdGeomSubset` prims of these geometries. Simulator implementations can use this feature, if they support sub-geometry element material assignments. For example, the non-uniform density of a volume deformable body may be inferred by reading the material densities of the simulation mesh's `UsdGeomSubset` prims with `'tetrahedron'` element type as described in section [Mass Distribution](#mass-distribution). `UsdPhysicsSurfaceDeformableMaterialAPI` `bendStiffness` values may be assigned to specific simulation mesh edges via a `UsdGeomSubset` using the `'edge'` element type.
+Properties are by default propagated down the object tree to the simulation geometry and collision geometries. Additionally, materials can be bound to `UsdGeomSubset` prims of these geometries. Simulator implementations can use this feature, if they support sub-geometry element material assignments. For example, the non-uniform density of a volume deformable body may be inferred by reading the material densities of the simulation mesh's `UsdGeomSubset` prims with `'tetrahedron'` element type as described in section [Mass Distribution](#mass-distribution). `UsdPhysicsSurfaceDeformableMaterialAPI` `surfaceBendStiffness` values may be assigned to specific simulation mesh edges via a `UsdGeomSubset` using the `'edge'` element type.
 
 Deformable material densities are superseded by values specified through `UsdPhysicsDeformableBodyAPI:mass` and `density`, analogous to how rigid body material densities are superseded by `UsdPhysicsMassAPI` masses and densities. Additionally, material densities are also superseded by explicit per-point masses specified on the simulation geometry, such as `UsdPhysicsVolumeDeformableSimAPI:masses`.
 
@@ -684,7 +729,7 @@ def Xform "rubberChickenToy" (
 
 For rigid bodies the specification of the mass distribution centers around `UsdPhysicsMaterialAPI`, `UsdPhysicsMassAPI` and geometries with `UsdPhysicsCollisionAPI`. The latter are used to define how mass is distributed. However, simulators may differ in how collision volumes are defined through `UsdPhysicsMeshCollisionAPI:approximation`, which also affects the effective mass distribution. For deformable bodies, mass is fundamentally a per-point quantity on the simulation geometry, which provides an opportunity to specify the mass distribution more definitively.
 
-The mass distribution can be authored at several levels, listed below in order of decreasing precedence. When an attribute is not authored, per-point masses are implicitly derived from a lower-precedence authored attribute using the formulas below.
+The mass distribution can be authored at several levels, listed below in order of decreasing precedence. When an attribute is not authored, per-point masses are implicitly derived from a lower-precedence source using the formulas below.
 
 1. Per-point masses may be explicitly specified by the `masses` attribute given by `UsdPhysicsVolumeDeformableSimAPI`, `UsdPhysicsSurfaceDeformableSimAPI`, or `UsdPhysicsCurvesDeformableSimAPI`.
 
@@ -698,7 +743,7 @@ The mass distribution can be authored at several levels, listed below in order o
 
    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $\displaystyle m_p = \rho V_p$
 
-   where $\rho$ is the authored body density, $V_p$ is the volume occupied by the point $p$ (defined below).
+   where $\rho$ is the authored body density and $V_p$ is the volume occupied by the point $p$ (defined below).
 
 4. `UsdPhysicsMaterialAPI:density`, applied according to the binding rules described in [Assigning Materials](#assigning-materials). If a single density applies to the whole simulation geometry, this is equivalent to case 3. If different densities apply to subsets of elements via `UsdGeomSubset`, $V_p$ decomposes into contributions $V_p^{(i)}$ from elements bound to each material $i$, and the per-point mass is
 
@@ -707,8 +752,10 @@ The mass distribution can be authored at several levels, listed below in order o
    where $\rho_i$ is the density of material $i$. It therefore makes sense to restrict the `elementType` of the `UsdGeomSubset` for material mass properties assignment to:
 
    - `'tetrahedron'`: for volume material `density`
-   - `'face'`: for surface material `density` and `thickness`
-   - `'segment'`: for curve material `density` and `thickness`
+   - `'face'`: for surface material `density` and `surfaceThickness`
+   - `'segment'`: for curve material `density` and `curvesThickness`
+
+5. A density of 1000 kg/m³ (approximately the density of water) when no density is specified by any of the above, as defined by the USD Physics rigid bodies schema. The value is converted into the stage's units, and the per-point masses are then derived as in case 3.
 
 The per-point volume $V_p$ is computed from the simulation geometry topology and the rest shape element volumes:
 
@@ -717,8 +764,10 @@ $$V_p = \sum_{e\, \in\, \tau(p)} \frac{V_e}{T}$$
 where $\tau(p)$ is the set of elements adjacent to $p$ according to the simulation geometry connectivity, $V_e$ is the volume of elements $e$ evaluated based on the rest shape, and $T$ weights the contribution of a single element on its adjacent points:
 
 - For volume deformables, $V_e$ is the volume of a single tetrahedron, while $T$ is 4.
-- For surface deformables, $V_e = A_e d$, while $A_e$ is the area of a single triangle, $d$ is `UsdPhysicsSurfaceDeformableMaterialAPI:thickness`, and $T$ is 3.
-- For curve deformables, $V_e = L_e \frac{\pi d^2}{4}$, while $L_e$ is the length of a single segment, $d$ is `UsdPhysicsCurvesDeformableMaterialAPI:thickness`, and $T$ is 2.
+- For surface deformables, $V_e = A_e d$, while $A_e$ is the area of a single triangle, $d$ is `surfaceThickness`, and $T$ is 3.
+- For curve deformables, $V_e = L_e \frac{\pi d^2}{4}$, while $L_e$ is the length of a single segment, $d$ is `curvesThickness`, and $T$ is 2.
+
+The USD Physics rigid bodies schema pairs its density default with a default total mass of 1.0 in the stage's mass units, for the case in which there are no collision volumes to derive a mass from. No corresponding case arises for deformable bodies: a deformable body always has a simulation geometry, so element volumes are always available and the mass distribution is always derivable.
 
 ### Kinematic Deformables
 
@@ -774,7 +823,7 @@ class PhysicsAttachment "PhysicsAttachment"
 - `type0`, `type1`: Specify the attachment site types for the corresponding sources. They define the kind of geometry feature the attachment sites refer to. The types need to be compatible with the corresponding sources as shown in the table below. The `type1` is set to `'xform'` for attachments to a rigid coordinate frame.
 - `indices0`, `indices1`: Specify the geometry feature indices for the sites. They are interpreted according to the type attributes and typically both arrays need to have the same number of elements, one per attachment site. There is one notable exception. In the case of attachments to `UsdGeomXformable` prims (i.e. `type1` is `'xform'`), `indices1` is empty.
 - `coords0`, `coords1`: Specify the local coordinates of the attachment sites relative to the corresponding site geometry feature described by `type0`, `indices0` or `type1`, `indices1` respectively. See the table below for how the coordinates are interpreted.
-- `stiffness`, `damping`: Specify the constitutive properties of all attachments in the set. The stiffness attribute specifies the strength of the attachment in units of force/area, and has a range of [0, inf), while a value of inf (simulator default) implies that the simulator should treat the constraint as hard if it is possible. The damping attribute only applies if the constraint isn't hard. Its specified in units of mass/second, has a range of [0, inf), and a fallback value 0.
+- `stiffness`, `damping`: Specify the constitutive properties of all attachments in the set. The stiffness attribute specifies the strength of the attachment in units of force/area, and has a range of [0, inf), while its fallback value of inf implies that the simulator should treat the constraint as hard if it is possible. The damping attribute only applies if the constraint isn't hard. Its specified in units of mass/second, has a range of [0, inf), and a fallback value 0.
 
 The following table shows the compatibility between sources and site types, as well as how indices and coordinates are interpreted.
 
