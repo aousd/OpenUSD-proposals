@@ -49,7 +49,7 @@ The USD Physics rigid bodies schema introduced the `UsdPhysicsRigidBodyAPI` clas
 >
 > To preserve existing content, `UsdPhysicsRigidBodyAPI` continues to support `rigidBodyEnabled` via custom accessors. Authoring the enable state through either API results in the corresponding value being written to the new `bodyEnabled` attribute, while reads resolve authored opinions from both attributes. Validators can be used to check consistency when both attributes have authored opinions. This approach leaves a clear path to deprecation of `rigidBodyEnabled`.
 
-```usda
+```python
 class "PhysicsBodyAPI"
 (
     inherits = </APISchemaBase>
@@ -77,10 +77,11 @@ class "PhysicsRigidBodyAPI"
 
 The USD Physics rigid bodies schema introduced the `UsdPhysicsMaterialAPI` class, which includes attributes for density, surface friction (dynamic and static) and collision restitution. The density and surface friction attributes are reused for deformables. The restitution coefficient is not applicable to deformable abstractions, as their elasticity behavior is inherently simulated.
 
-```usda
+```python
 class "PhysicsMaterialAPI"
 (
     inherits = </APISchemaBase>
+
 )
 {
     float physics:dynamicFriction = 0.0 ()
@@ -139,7 +140,7 @@ Because these APIs are applied to the same primitive, their attributes share a s
 
 For details on deformable material assignment, see [Assigning Materials](#assigning-materials).
 
-```usda
+```python
 class "PhysicsVolumeDeformableMaterialAPI"
 (
     inherits = </APISchemaBase>
@@ -219,13 +220,14 @@ where $h$ is `curvesThickness`, $A = \pi h^2 / 4$ is the cross-section area (str
 
 The class `UsdPhysicsDeformableBodyAPI` is introduced to denote that a prim is to be deformable, whether volume-, surface-, or curve-based. Its pseudo-base class `UsdPhysicsBodyAPI` is also applied to any prim that has `UsdPhysicsDeformableBodyAPI` applied.
 
-```usda
+```python
 class "PhysicsDeformableBodyAPI"
 (
     inherits = </APISchemaBase>
     prepend apiSchemas = ["PhysicsBodyAPI"]
 )
 {
+
     float physics:mass = 0.0 ()
     float physics:density = 0.0 ()
 }
@@ -274,9 +276,9 @@ For curve deformables, individual segments need to be addressable. The number of
 
 The simulation APIs provide a `masses` attribute for specifying a per-point mass on the simulation geometry. When the `masses` attribute is specified, the size of the array must match the number of points defined in the simulation geometry's `points` attribute. These per-point mass definitions take precedence over any mass or density parameters specified by `UsdPhysicsDeformableBodyAPI` or `UsdPhysicsMaterialAPI`.
 
-The rest shape of a deformable body is represented by attributes of the type-specific simulation API, detailed in the following subsection.
+The rest shape of a deformable body may be represented by attributes of the type-specific simulation API, detailed in the following subsection.
 
-```usda
+```python
 class "PhysicsVolumeDeformableSimAPI"
 (
     inherits = </APISchemaBase>
@@ -313,15 +315,17 @@ class "PhysicsCurvesDeformableSimAPI"
 
 ### Rest Shape Attributes
 
-Rest shape is a fundamental concept for simulating deformable objects. A simulator employs some constitutive material model that computes restoring forces on simplices based on the difference between the rest shape and the current shape. Storing the rest configuration alongside the dynamic state is essential: without it, an elastic object that is draped or suspended under gravity would continue to stretch further each time the simulation is saved and restarted from USD. In more complex use cases, it may also be necessary for the rest shape to change over time.
+Rest shape is a fundamental concept for simulating deformable objects. A simulator employs some constitutive material model that computes restoring forces on simplices based on the difference between the rest shape and the current shape. Storing the rest configuration alongside the dynamic state is advantageous: without it, an elastic object that is draped or suspended under gravity would continue to stretch further each time the simulation is saved and restarted from USD. In more complex use cases, it may also be necessary for the rest shape to change over time.
 
-In the case of `UsdPhysicsVolumeDeformableSimAPI`, which is intended for tetmeshes, `restShapePoints` and `restTetVertexIndices` are specified. The rest shape always describes the same tetrahedral elements as the simulation mesh, in the same order: `restTetVertexIndices` must have the same length as the simulation `UsdGeomTetMesh`'s `tetVertexIndices`. The two index sets, however, reference different point arrays — `restTetVertexIndices` indexes into `restShapePoints`, while `tetVertexIndices` indexes into the simulation mesh's `points` — and the connectivity they express may differ. The rest shape's connectivity is unconstrained: tetrahedra may share vertices in the rest shape exactly as they do in the simulation mesh, share them in a different pattern, or not share them at all. This allows different portions of the tetmesh to have independent rest shapes. As a shortcut, when the rest connectivity matches the simulation connectivity exactly, `restTetVertexIndices` may be left empty and the simulation mesh's `tetVertexIndices` is used in its place; in this case, `restShapePoints` must contain the same number of points as the simulation mesh's `points`.
+None of the rest shape attributes are mandatory. Where they are not authored, the rest shape is derived from the simulation geometry, see [Rest Shape Fallbacks](#rest-shape-fallbacks).
+
+In the case of `UsdPhysicsVolumeDeformableSimAPI`, which is intended for tetmeshes, `restShapePoints` and `restTetVertexIndices` may be specified. The rest shape always describes the same tetrahedral elements as the simulation mesh, in the same order: `restTetVertexIndices` must have the same length as the simulation `UsdGeomTetMesh`'s `tetVertexIndices`. The two index sets, however, reference different point arrays — `restTetVertexIndices` indexes into `restShapePoints`, while `tetVertexIndices` indexes into the simulation mesh's `points` — and the connectivity they express may differ. The rest shape's connectivity is unconstrained: tetrahedra may share vertices in the rest shape exactly as they do in the simulation mesh, share them in a different pattern, or not share them at all. This allows different portions of the tetmesh to have independent rest shapes. When the rest connectivity matches the simulation connectivity exactly, `restTetVertexIndices` need not be authored, see [Rest Shape Fallbacks](#rest-shape-fallbacks).
 
 <p align="center"><img src="images/tet_restshape.svg" alt="2D illustration of a volume deformable, showing a disconnected rest shape (left), the simulation mesh (middle), and the simulation mesh after simulation (right)." width="666"></p>
 
 *2D illustration of a volume deformable. The rest shape on the left consists of two disconnected parts with tetrahedra of different sizes. For this reason, the mesh describing the rest shape cannot have the same topology as the simulation mesh shown in the middle - some vertices of the simulation mesh correspond to disjoint vertices in the rest shape. The right-hand side shows the simulation mesh after the simulation.*
 
-This capability is more important in the case of `UsdPhysicsSurfaceDeformableSimAPI`, which is meant to be applied to surface meshes to represent cloth and shells. In modeling cloth, it is very common to define the planar rest shape of sections of the 3D mesh in a disjoint fashion in a 2D material "panel space." The `restShapePoints` attribute of `UsdPhysicsSurfaceDeformableSimAPI` has 3D points, but disjoint sets (w.r.t `restTriVertexIndices`) of these points can be coplanar to support planar rest shape descriptions from panel-based creation tools. Furthermore, this representation allows the description of the planar rest shape that should be compatible with models for 3D shells. As with the volume case, `restTriVertexIndices` may be left empty when the the rest connectivity matches the surface mesh's connectivity exactly, in which case the surface mesh's `faceVertexIndices` is used in its place and `restShapePoints` must contain the same number of points as the surface mesh's `points`.
+This capability is more important in the case of `UsdPhysicsSurfaceDeformableSimAPI`, which is meant to be applied to surface meshes to represent cloth and shells. In modeling cloth, it is very common to define the planar rest shape of sections of the 3D mesh in a disjoint fashion in a 2D material "panel space." The `restShapePoints` attribute of `UsdPhysicsSurfaceDeformableSimAPI` has 3D points, but disjoint sets (w.r.t `restTriVertexIndices`) of these points can be coplanar to support planar rest shape descriptions from panel-based creation tools. Furthermore, this representation allows the description of the planar rest shape that should be compatible with models for 3D shells. As with the volume case, `restTriVertexIndices` need not be authored when the rest connectivity matches the surface mesh's connectivity exactly, see [Rest Shape Fallbacks](#rest-shape-fallbacks).
 
 Thin shells (e.g. cloth) based on triangular meshes also require the definition of the rest dihedral angle for the interior edges of the mesh. Using the mesh of cloth pants as an example, one might want to describe a pleat along a consecutive edge run down the front of each leg. Besides increasing the `surfaceBendStiffness` for these edges, the `restBendAngles` for these edges could be set to something like 75 degrees. The assignment of `restBendAngles` is specified via `restAdjTriPairs`, pairs of adjacent triangles the dihedral bend angles refer to.
 
@@ -333,7 +337,7 @@ The rest dihedral bend angles that are not explicitly specified are implicitly d
 
 In defining rest dihedral bend angles, the adjacency is determined by the topology provided by the simulation `UsdGeomMesh`'s `faceVertexIndices`, rather than the rest shape's `restTriVertexIndices`, because the rest shape topology may describe disjoint sets of triangles.
 
-For `UsdPhysicsCurvesDeformableSimAPI`, the rest shape is specified through two attributes: `restShapePoints` and `restNormals`. Unlike for volume and surface deformables, no separate rest topology can be specified for curves. The rest topology is given by the simulation `UsdGeomBasisCurves`' `curveVertexCounts` and `wrap`.
+For `UsdPhysicsCurvesDeformableSimAPI`, the rest shape may be specified through two attributes: `restShapePoints` and `restNormals`. Unlike for volume and surface deformables, no separate rest topology can be specified for curves. The rest topology is given by the simulation `UsdGeomBasisCurves`' `curveVertexCounts` and `wrap`.
 
 The rest centerline is specified by `restShapePoints`, with one rest position per simulation geometry vertex. Rest segment lengths and rest bend angles between adjacent segments are derived from these positions.
 
@@ -354,6 +358,20 @@ The rest cross-section orientations are specified by `restNormals`, with one res
 > - The rest shape merely adds information to the elements already described by the simulation geometry, and is therefore intimately connected to it.
 > - In some cases the underlying geometry is not sufficient to represent all the required information. For example, the representation of rest angles between cloth panels (`restBendAngles`) would necessitate an additional API, which was deemed unnecessarily complex.
 
+#### Rest Shape Fallbacks
+
+None of the rest shape attributes are mandatory. Where one is not authored, it is derived from the corresponding attribute of the simulation geometry, which must then have a value authored at the *default time code*.
+
+- `restShapePoints` is derived from the simulation geometry's `points`. An authored rest topology must then match the simulation geometry's topology.
+- `restTetVertexIndices` is derived from the `UsdGeomTetMesh`'s `tetVertexIndices`. An authored `restShapePoints` must then contain the same number of points as the `UsdGeomTetMesh`'s `points`.
+- `restTriVertexIndices` is derived from the `UsdGeomMesh`'s `faceVertexIndices`. An authored `restShapePoints` must then contain the same number of points as the `UsdGeomMesh`'s `points`.
+- `restNormals` is derived from the `UsdGeomBasisCurves`' `normals`.
+- `restBendAngles` and `restAdjTriPairs` have no counterpart on the simulation geometry. Where they are not authored, the rest dihedral angles are implied by `restBendAnglesDefault`, which has the fallback value `'flat'`.
+
+> **Design Note**
+>
+> Where `restBendAngles` and `restAdjTriPairs` are not authored, the rest dihedral angles are not derived from the simulation geometry as the remaining rest shape attributes are. The fallback value `'flat'` of `restBendAnglesDefault` implies rest dihedral angles of zero degrees, rather than the angles as given by the simulation geometry. The latter would follow from a fallback value of `'restShape'`, which was found to be less useful in general.
+
 ### Collision Geometries
 
 Defining colliders for a deformable body works analogously to rigid bodies. `UsdGeomPointBased` geometries in the deformable body hierarchy can be marked with the `UsdPhysicsCollisionAPI`, which elects them to participate in collision detection. Deformable body colliders are limited to any `UsdGeomPointBased` prim because they need to be able to follow the deformable body's deformation. The collider geometries are embedded into the simulation geometry and contact forces/impulses computed against the colliders can be converted to constraints against the simulation geometry in the simulator. Embedding is supported through the `UsdPhysicsDeformablePoseAPI`, see section [Geometry Embeddings](#geometry-embeddings).
@@ -368,7 +386,7 @@ Defining colliders for a deformable body works analogously to rigid bodies. `Usd
 
 Here is an example of a single geometry volume deformable body:
 
-```usda
+```python
 def TetMesh "volumeDeformable" (
     prepend apiSchemas = [
         "PhysicsDeformableBodyAPI",
@@ -384,7 +402,7 @@ def TetMesh "volumeDeformable" (
 
 And here is an example of a volume deformable body using a specialized simulation geometry:
 
-```usda
+```python
 def Xform "volumeDeformable" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -407,7 +425,7 @@ def Xform "volumeDeformable" (
 
 And here is another example for a surface deformable configured for collision detection using point samples:
 
-```usda
+```python
 def Xform "surfaceDeformable" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -443,7 +461,7 @@ Geometries that are exclusively used for graphics are not particularly tagged bu
 
 The tire example would look something like this:
 
-```usda
+```python
 def Xform "tire" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -466,7 +484,7 @@ def Xform "tire" (
 
 For surface deformables, the simulation mesh is of type `UsdGeomMesh`, but can still be discretized differently than the graphics mesh:
 
-```usda
+```python
 def Xform "surfaceDeformable" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -488,7 +506,7 @@ def Xform "surfaceDeformable" (
 
 For curve deformables, a similar pattern is followed:
 
-```usda
+```python
 def Xform "curvesDeformable" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -512,7 +530,7 @@ It is common in the case of hair/fur simulation to simulate only a subset of cur
 
 Pre-existing graphical assets often consist of multiple graphics meshes, for example, to facilitate easy assignment of graphics materials, and may be organized hierarchically. For example:
 
-```usda
+```python
 def Xform "rubberChickenToy" ()
 {
     def Mesh "body" () { ... }
@@ -531,7 +549,7 @@ def Xform "rubberChickenToy" ()
 
 Marking such an asset for rigid body simulation would be relatively easy as follows: apply `UsdPhysicsRigidBodyAPI` to rubberChickenToy, apply `UsdPhysicsCollisionAPI` and `UsdPhysicsMeshCollisionAPI` to all meshes in the subtree. For deformable body simulation, a tool is assumed to apply the `UsdPhysicsDeformableBodyAPI` to the root, then generate a suitable simulation `UsdGeomTetMesh` with `UsdPhysicsVolumeDeformableSimAPI` that represents the entire volume occupied by the body, eyeballs, right and left legs of the chicken toy. If, for example, the generated simulation mesh is suitable for collision detection as well, it can be re-used as a collider by applying a `UsdPhysicsCollisionAPI`:
 
-```usda
+```python
 def Xform "rubberChickenToy" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -577,13 +595,14 @@ This example illustrates only one possible embedding approach. In practice, nume
 
 To facilitate the specification of auxiliary poses for deformable geometries, the `UsdPhysicsDeformablePoseAPI` is introduced. This API can be applied to any `UsdGeomPointBased` prim.
 
-```usda
+```python
 class "PhysicsDeformablePoseAPI"
 (
     customData = {
         token apiSchemaType = "multipleApply"
         token propertyNamespacePrefix = "physics:deformablePose"
     }
+
     inherits = </APISchemaBase>
 )
 {
@@ -596,11 +615,11 @@ A *multiple-apply* API schema allows multiple distinct poses to be specified for
 
 A *bind pose* for a `UsdGeomPointBased` geometry can be specified by applying the `UsdPhysicsDeformablePoseAPI` and adding the `'bindPose'` token to its `purposes` attribute as well as storing the points representing the bind pose in the `points` attribute.
 
-If no *bind pose* has been specified for a `UsdGeomPointBased` geometry in the deformable subtree, the simulator is assumed to interpret the *authored default value* of the `points` attribute as the *bind pose*.
+If no *bind pose* has been specified for a `UsdGeomPointBased` geometry in the deformable subtree, the simulator is assumed to interpret the value authored for the `points` attribute at the *default time code* as the *bind pose*. Such a value must then be authored.
 
 The tire example from above is extended here with a custom `UsdPhysicsDeformablePoseAPI` that defines a `bindPose` purpose:
 
-```usda
+```python
 def Xform "tire" (
     prepend apiSchemas = ["PhysicsDeformableBodyAPI"]
 )
@@ -664,7 +683,7 @@ Deformable material densities are superseded by values specified through `UsdPhy
 
 Example showing how to use a `UsdGeomSubset` prim in the previous rubber chicken toy setup to specify multi-material behavior.
 
-```usda
+```python
 def Material "softMat" (
     prepend apiSchemas = [ "PhysicsVolumeDeformableMaterialAPI" ]
 ) { ... }
@@ -794,7 +813,7 @@ Attachments between two deformable bodies or a deformable body and a `UsdGeomXfo
 
 `UsdPhysicsAttachment` is a class representing a set of attachments between two sources (which may refer to the same prim in case of self-attachment):
 
-```usda
+```python
 class PhysicsAttachment "PhysicsAttachment"
 (
     inherits = </Imageable>
@@ -881,7 +900,7 @@ The filtering always takes place at the level of the constituent elements of the
 
 Not supported is filtering based on tetrahedral elements. It is assumed filtering collisions at the tetrahedral mesh surface is sufficient.
 
-```usda
+```python
 class PhysicsElementCollisionFilter "PhysicsElementCollisionFilter"
 (
     inherits = </Imageable>
@@ -911,7 +930,7 @@ Each pair of groups defines the elements of both colliders that should not colli
 
 **Two groups each:**
 
-```usda
+```python
 groupElemCounts0 = [2, 1], groupElemIndices0 = [3, 4, 6]
 groupElemCounts1 = [2, 3], groupElemIndices1 = [9, 7, 2, 5, 6]
 ```
@@ -922,7 +941,7 @@ element 6 of src0 is filtered against element 2, 5 and 6 of src1
 
 **Pairwise:**
 
-```usda
+```python
 groupElemCounts0 = [1, 1], groupElemIndices0 = [3, 4]
 groupElemCounts1 = [1, 1], groupElemIndices1 = [9, 7]
 ```
@@ -933,7 +952,7 @@ element 4 of src0 is filtered against element 7 of src1
 
 **Mixed:**
 
-```usda
+```python
 groupElemCounts0 = [3, 2], groupElemIndices0 = [6, 7, 8, 15, 16]
 groupElemCounts1 = [0, 1], groupElemIndices1 = [33]
 ```
@@ -944,7 +963,7 @@ element 15 and 16 of src0 are filtered against element 33 of src1
 
 **One group against all:**
 
-```usda
+```python
 groupElemCounts0 = [3], groupElemIndices0 = [3, 4, 6]
 groupElemCounts1 = [0], groupElemIndices1 = []
 ```
