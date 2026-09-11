@@ -18,7 +18,7 @@ over "GLOBAL" (
 }
 
 #************************************************************************************
-class BrepArray  "BrepArray" (
+class PrelimBrepArray  "PrelimBrepArray" (
     inherits = </Gprim>
     doc = """ Solid boundary representation models (Breps) rigorously partition space into regions by connecting sets of surfaces into region boundaries.  Regions are the set of points that can be connected by curves of any shape that don't cross boundaries.  
               The boundaries between regions must be watertight to prevent the points of each region from being connectable to one another.  Manifold solid objects partition space into one solid region and one or more void regions. 
@@ -33,7 +33,7 @@ class BrepArray  "BrepArray" (
               For compact storage of the radial edge data model redundant elements are removed from the flattened representation.  There are no attributes for Vertexuses and Loopuses.  
               The lists of Edgeuses represents pairs, so the arrays size() are half the number of Edgeuses in the Brep model.
 
-              Objects related to a single Brep must be consecutive in the BrepArray. For example, if Brep_1 has a total of 3 shells, the Brep_2 startShellIndx for its first region would be the number 3.  
+              Objects related to a single Brep must be consecutive in the PrelimBrepArray. For example, if Brep_1 has a total of 3 shells, the Brep_2 startShellIndx for its first region would be the number 3.  
               Another example, the Edges of Brep_i are the brep:edgeCount[ii] consecutive Edges starting at SUM(brep:edgeCount[n]), for n in [0,ii).  """ 
 ) {
     uniform double[]  brep:intersectTol3d        ( doc = """ Max distance at which two objects intersect and min distance at which two points are distinct. size() = number of Breps. """ )
@@ -80,9 +80,9 @@ class BrepArray  "BrepArray" (
                                                             size() = Number of one-sided edge_to_face connections. """ )
     uniform uint[]    edgeuse:nextRadialEUIndex   ( doc = """ index of the nextRadialEdgeuse in a right-hand-rule traversal around the edgeuse's edge. size() = Number of one-sided edge_to_face connections.""")
     uniform token[]   edgeuse:thisRadialEntryType ( allowedTokens = ["topEntry", "bottomEntry"]
-                                                    doc = """ - Each BrepArray edgeuse represents a {TopEdgeuse BotEdgeuse} mated pair connecting one side of an edge to the top and bottom sides of a face.
-                                                              - Edges bounding faces mostly connect to the face on just one side of the edge and are represented by just one BrepArray edgeuse, but
-                                                                seam edges that connect closed surfaces and strut edges representing cracks in a face connect to the same face twice and have two BrepArray edgeuses.
+                                                    doc = """ - Each PrelimBrepArray edgeuse represents a {TopEdgeuse BotEdgeuse} mated pair connecting one side of an edge to the top and bottom sides of a face.
+                                                              - Edges bounding faces mostly connect to the face on just one side of the edge and are represented by just one PrelimBrepArray edgeuse, but
+                                                                seam edges that connect closed surfaces and strut edges representing cracks in a face connect to the same face twice and have two PrelimBrepArray edgeuses.
                                                               - A right-hand-rule traversal around this edgeuse's edge, orders the edge-face connections into a series of {face entry side, face exit side} pairs
                                                                 represented as a set of {entryEdgeuse, exitEdgeuse} pairs as: 
                                                                       RadialEdgeList = { edgeuse[1st]:{entryTopOrBotEdgeuse, exitBotOrTopEdgeuse}, ..., edgeuse[nth]:{entryTopOrBotEdgeuse, exitBotOrTopEdgeuse} } 
@@ -119,10 +119,10 @@ class BrepArray  "BrepArray" (
     uniform token[]   vertex:pointType           ( allowedTokens = ["BrepPointAPI"]
                                                          # in the future add ["BrepMultiPointAPI"]
                                                    doc = """ BrepPointAPI = shape for vertex_ii is a point in the pointType array. size() = number of Vertices. """ )
-} # end class BrepArray "BrepArray"              
+} # end class PrelimBrepArray "PrelimBrepArray"              
 
 #************************************************************************************
-# purpose: point geometry apis for BrepArrays
+# purpose: point geometry apis for PrelimBrepArrays
 # note   :  BrepPointAPI: multipleApply API = associated geometry of vertices defined by 3d Points
 #             Instance name = vertexPoint  => associated geometry of vertex objects defined by 3d points
 #             Instance name = shellPoint   => associated geometry of vertexShell objects defined by 3d points
@@ -137,7 +137,7 @@ class "BrepPointAPI" (
     doc = """ Associated and packed point descriptions of brep objects defined by a 3d point. """
     customData = { token apiSchemaType = "multipleApply"
                    token propertyNamespacePrefix = "brep"
-                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidBrepArray"]
+                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidPrelimBrepArray"]
                    token[] apiSchemaAllowedInstanceNames = ["vertexPoint", "shellPoint"]
                  }
 )
@@ -152,7 +152,7 @@ class "BrepPointAPI" (
 } # end class "BrepPointAPI"
 
 #************************************************************************************
-# purpose: curve geometry apis for BrepArrays 
+# purpose: curve geometry apis for PrelimBrepArrays 
 # note   :  BrepCurveUvNurbAPI: singleApply API = associated geometry of edgeuse objects defined by 2d BSpline curves
 #           
 #           BrepCurve3dNurbAPI  : multipleApply API = associated geometry of edges defined by 3d BSpline curves
@@ -180,7 +180,7 @@ class "BrepCurve3dNurbAPI" (
     consistent with RenderMan's NURB patch specification. """
     customData = { token apiSchemaType = "multipleApply"
                    token propertyNamespacePrefix = "brep"
-                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidBrepArray"]
+                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidPrelimBrepArray"]
                    token[] apiSchemaAllowedInstanceNames = ["edge3dNurb", "wireEdge3dNurb"]
                  }
 )
@@ -236,7 +236,7 @@ class "BrepCurveUvNurbAPI" (
     inherits = </APISchemaBase>
     doc = """ Associated and packed 2d NURB UV curve descriptions of brep:edgeuses defined by 2d BSpline curves. """
     customData = { token apiSchemaType = "singleApply"
-                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidBrepArray"]
+                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidPrelimBrepArray"]
                  }
 )
 {
@@ -287,7 +287,7 @@ class "BrepCurveUvNurbAPI" (
 } # end class "BrepCurveUvNurbAPI"
 
 #************************************************************************************
-# purpose: surface geometry apis for BrepArrays 
+# purpose: surface geometry apis for PrelimBrepArrays 
 # note   :  BrepSurfaceNurbAPI    : singleApply API = associated geometry of face objects defined by 3d BSpline surfaces
 #          To be added:
 #           BrepSurfacePlaneAPI   : singleApply API = associated geometry of face objects defined by 3d BSpline planes
@@ -312,7 +312,7 @@ class "BrepSurfaceNurbAPI" (
     The authored points, orders, knots, weights, and ranges are all that is required to render the nurbs patch.
     """
     customData = { token apiSchemaType = "singleApply"
-                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidBrepArray"]
+                   token[] apiSchemaCanOnlyApplyTo = ["PrelimUsdSolidPrelimBrepArray"]
                  }
 )
 {
