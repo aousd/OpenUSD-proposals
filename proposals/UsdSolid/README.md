@@ -64,9 +64,9 @@ In support of the model, this proposal also introduces additional curve, surface
 
 ## Glossary
 
-For definitions of BRep, Curve, Edge, Edgeuse, Face, Faceuse, Geometry, Loop, Manifold, Region, Shell, Solid, Surface, Topology, Trim Curve, Vertex, and Wire, see [Appendix A: BRep Glossary](../cad_geometry/README.md#appendix-a-brep-glossary) in the companion problem statement. The following additional terms are specific to this proposal's schema:
+For definitions of BRep, Curve, Edge, Edgeuse, Face, Faceuse, Geometry, Loop, Manifold, Region, Shell, Solid, Strut Edge, Surface, Topology, Trim Curve, Vertex, and Wire, see [Appendix A: BRep Glossary](../cad_geometry/README.md#appendix-a-brep-glossary) in the companion problem statement. The following additional terms are specific to this proposal's schema:
 
-**BrepArray** -- A `UsdSolidBrepArray` prim that holds one or more Breps in a packed, flat representation. Each Brep's topology, geometry, and metadata are concatenated into shared arrays and delineated by per-Brep counts and offsets. See [USD implementation](#usd-implementation).
+**BrepArray** -- A `UsdSolidBrepArray` prim that holds one or more Breps in a packed, flat representation. Topology, geometry, and metadata are concatenated into shared arrays. Breps are delineated by `brep:regionCount`; nested ownership counts and topology references recover the remaining object occurrences. See [USD implementation](#usd-implementation).
 
 **Wire edge** -- A `wireEdge` is a topologically standalone edge that is not part of any face loop. Wire edges carry the same curve geometry as loop-bounding edges but exist independently as one-dimensional features within a shell. They are represented in the schema by `wireEdge:*` arrays.
 
@@ -80,7 +80,7 @@ In geometric modeling, where mathematical approximations of shape are common, ga
 
 Several Brep models were considered as options for the base of the _UsdSolid_ schema. The Radial Edge Data Model was chosen because, in addition to standard manifold modeling, it offers a robust representation of non-manifold modeling. Weiler's model was the first complete non-manifold Brep to explicitly represent topological adjacencies (Lee, 1999). The topology models in PRC, STEP, Parasolid, and others map into the proposed Radial Edge Data Model. Concepts from both PRC and STEP are used in this proposal, including all of the Brep geometry types in PRC and the volumes concept from STEP. As in PRC and STEP, this design supports wire-frame models.
 
-The proposed model is composed of three parts: shapes, topology objects, and special connectivity objects called "uses." Because limiting _UsdPrim_ count is good practice in general and essential in large-scale scenes, the _UsdSolid_ design utilizes a _UsdSolidBrepAPI_ multiple-apply schema that can be applied to a _UsdSolidBrepArray_ IsA schema. Each instance of the _UsdSolidBrepAPI_ contains all the shape, topology, and connectivity data of a single Brep, plus metadata such as material bindings and a local transform.
+The proposed model is composed of three parts: shapes, topology objects, and special connectivity objects called "uses." Because limiting _UsdPrim_ count is good practice in general and essential in large-scale scenes, the _UsdSolid_ design packs one or more Breps directly into a _UsdSolidBrepArray_ IsA schema. The topology arrays and the applied geometry API data all reside on that prim. An individual packed Brep has no local transform; _XformOps_ transform the complete _BrepArray_. _GeomSubset_ can address packed faces for supported metadata such as material assignment. A new subset type that addresses individual packed Breps or its components can be added later.
 
 ### Shape
 
@@ -99,9 +99,9 @@ Third, the parameterization of the sphere, cone, cylinder, plane and volume are 
 In order to trim them properly for solid modeling the analytics will need parameterizations and double precision.
 Last, the CAD community uses a larger set of analytic surfaces than currently supported in USD.
 
-In this proposal, each geometry type is defined by a set of attributes that reside within the _UsdSolidBrepAPI_ schema. The geometry is packed within like types, as in the _UsdGeomNurbsCurves_ class. Where necessary, the geometry will have double-precision attributes — for example, NURBS curves have double-precision control vertices, weights, and knots. Analytic geometry data will include both the analytic definition and the parameterization — for example, a sphere will have a radius and also a frame of reference that defines the parameterized surface origin, orientation, beginning, and end. The PRC parameterizations are recommended for analytic geometries. Trimming curves are also part of the _UsdSolidBrepAPI_ schema, packed as the 3D curves are.
+In this proposal, each geometry type is defined by an applied API on the _UsdSolidBrepArray_. The geometry is packed within like types, as in the _UsdGeomNurbsCurves_ class. Surface records are packed densely and independently by surface type across the _BrepArray_. For a face whose `face:surfaceType` token is _T_, its record index in _T_'s surface attribute arrays is the number of earlier `face:surfaceType` entries also equal to _T_. Because each Brep's faces are consecutive, a Brep's per-type surface offset is the number of matching tokens belonging to preceding Breps, and matching faces within the Brep retain their face order. Point and 3D-curve geometry APIs are multiple-apply schemas whose named instances distinguish their owning topology categories (for example, vertex points from shell points and edge curves from wire-edge curves). UV-curve and surface geometry APIs are single-apply schemas because their packed records are associated by edgeuse and face ordering. Where necessary, the geometry has double-precision attributes — for example, NURBS curves have double-precision control vertices, weights, and knots. Analytic geometry data includes both the analytic definition and the parameterization — for example, a sphere has a radius and a frame of reference that defines the parameterized surface origin and orientation. The PRC parameterizations are recommended for analytic geometries. Optional trimming curves are packed by edgeuse as described below.
 
-For a complete set of geometry, the target is to meet the PRC standard (ISO 14739-1:2014). Achieving this will require an extensive list of attributes for the _UsdSolidBrepAPI_. The following curves and surfaces are needed to match the PRC specification. _Volume_, _CurveInVolume_, and _SurfInVolume_ types are also included for anticipated future uses. New geometry will be added to the _UsdSolidBrepAPI_ schema.
+For a complete set of geometry, the target is to meet the PRC standard (ISO 14739-1:2014). Achieving this will require additional applied geometry APIs and their attributes. The following curves and surfaces are needed to match the PRC specification. _Volume_, _CurveInVolume_, and _SurfInVolume_ types are also included for anticipated future uses. New geometry will be added as applied APIs on _UsdSolidBrepArray_.
 
 
 | Curves | Surfaces | Volumes |
@@ -135,10 +135,11 @@ If one has a way to keep track of which surfaces share an edge, then they have a
 
 A trimmed surface, together with the information about its neighbors is referred to as a face.
 A face must have an outer boundary and it may have many inner boundaries or "holes."
-A shell is a collection of connected faces.
+A shell groups one connected boundary component: connected faces (optionally
+with attached wires), a connected wire-only component, or an isolated point.
 
 
-If a shell is closed then you have a solid.
+If a face shell is closed then you have a solid boundary.
 A solid has an outer closed shell and possibly many inner shells that define cavities in the solid.
 A "region" encloses space from a closed outer shell or between two closed shells (one inside the other) and has volume.
 The outer region is the infinite region, so a closed box is represented by two regions - the outer infinite region, and the region within the box.
@@ -157,8 +158,10 @@ That's what is meant by being "non-manifold".
 A manifold edge is restricted to having two neighboring surfaces and a non-manifold edge may have more than two surfaces that share that edge.
 
 
-Each boundary of a face consists of a closed loop of edges.
-In the topology structure each loop has a list of edges, and the same edge may be used by two or more faces and that's what "EdgeUse" refers to.
+Each boundary of a face is represented by a loop. An edge loop is a closed,
+cyclic sequence of head-to-tail connected edgeuses; a collapsed inner boundary
+may instead be represented by a single vertex.
+In the topology structure each edge loop has a list of edge uses, and the same edge may be used by two or more faces and that's what "EdgeUse" refers to.
 The term edgeuse has real importance since there could be many uses of an edge.
 
 
@@ -172,11 +175,11 @@ The face is used on one region, and the face is also used in the other region.
 The key idea of Brep modeling is that simple trimmed-shapes connect together through their boundaries to form complex geometry models just as a set of small glass pieces welded together along their edges form a stain glass window.
 
 
-Shapes are points, curves, and surfaces each of which is a simply connected point set within a 3D space.
+Shapes are points, curves, and surfaces represented as point sets within a 3D space.
 Shapes can be infinite (planes, cylinders, lines and such) or finite (Bspline curves and surfaces) but have no sense of boundaries.
 For every shape there is a simple topology object that adds trimming to the shape so that it can be connected into a Brep model.
 The simple topology objects are vertices, edges, faces, and regions.
-Important combinations of simple topology objects forming key boundaries within a geometry model are also represented explicitly; a loop is any closed sequence of connected edges used to bound a face and a shell is any set of faces connected edge-to-edge to bound a region.
+Important combinations of simple topology objects forming key boundaries within a geometry model are also represented explicitly. A loop is normally a closed sequence of connected edges used to bound a face, with a single-vertex form for a collapsed inner boundary. A shell groups one connected component owned by a region: faces, optionally with attached wires; wire edges alone; or an isolated point. Closed face shells bound volumetric regions.
 
 
 A topology object is "used" each time it connects to the geometry model to form a boundary.
@@ -208,9 +211,9 @@ The following diagram shows the Brep object model.
 
 ### USD implementation
 
-To make the USD implementation as lightweight as possible, yet fully featured, we propose using a single concrete IsA schema as an array of Breps and single apply APIs to add geometry to the array.
+To make the USD implementation as lightweight as possible, yet fully featured, we propose using a single concrete IsA schema as an array of Breps and applied APIs to add geometry to the array.
 The _UsdSolidBrepArray_ is a flattened format that describes all the necessary connectivity to build the Brep directed graph, with topology and "use" objects; and standardizes the application of select metadata.
-Each geometry type, e.g. _NURBS_ curves or surfaces, are singly apply API schemas.
+Surface and UV-curve geometry types are single-apply schemas. Point and 3D-curve geometry types are multiple-apply schemas so named instances can separately pack the same geometry type for different topology categories.
 Since each type of geometry is optional (a given Brep may have only _NURBS_ and no analytics), this will minimize the number of default valued attributes.
 
 In solid modeling a Brep is not a monolithic object; each object within the Brep has its own instance and may have unique properties.
@@ -230,25 +233,37 @@ The Radial Edge Data Model was chosen because of its neutral position in the CAD
 
 #### UsdSolidBrepArray
 
-The _UsdSolidBrepArray_ derives from _UsdGeomGprim_ with attributes to define the Brep topology, "uses", and count of each per Brep.
+The _UsdSolidBrepArray_ derives from _UsdGeomGprim_ with attributes that define packed Brep topology and "uses."
 _UsdSolidBrepArray_ derives from _UsdGeomGprim_ so that it can have the properties _Extent_ and _Visibility_, and have _XformOps_ applied.
 It follows the rules of all geometric primitives, such as no nested _Gprims_.
 
 The flat format of Brep connectivity is a concise representation of the Brep that creates only a small perturbation of the USD format, a single schema to represent an entire Brep model.
 With this model, creating one or more Breps in USD requires one _BrepArray_ to define the connectivity and metadata, with curves and surfaces applied.
-In some usecases we expect that a collections of Breps will have one Brep per _BrepArray_.
+The `brep:regionCount` array has one entry per Brep. Regions are consecutive in Brep order; shells are consecutive in region order; faceuses and wire edges are consecutive in shell order; loops are consecutive in face order; and stored edgeuse records are consecutive in loop order. Count arrays at each owning level define these occurrence slices. Faces, edges, and vertices are indexed directly, and all objects belonging to one Brep must remain consecutive in the aggregate arrays. In some use cases we expect that a collection of Breps will use one Brep per _BrepArray_.
+
+The full radial-edge model has top and bottom edgeuses for a face-side connection. For compact storage, one _BrepArray_ edgeuse record represents that mated pair. Consequently, an edgeuse-array entry is one stored, one-sided edge-to-face connection rather than one of the two conceptual edgeuse objects. Most face boundaries contribute one stored record; a seam or strut that connects the same edge to the same face twice contributes two. `edgeuse:thisRadialEntryType` and `edgeuse:nextRadialEUIndex` preserve the radial traversal information omitted by pairing.
 
 #### Instancing of Brep models
 
 In this proposal, whole _UsdSolidBrepArray_ can be referenced to create multiple instances of a set of Breps.
 
+#### GeomSubset addressing
+
+After initial adoption of the proposal, we propose extending the _UsdGeomSubset_ `elementType` vocabulary with `brep` for direct children of _UsdSolidBrepArray_. If that token is used, a subset whose `elementType` is `brep` addresses packed Breps by index. Its element count is `size(brep:regionCount)`, which also equals `size(brep:intersectTol3d)` and half of `size(brep:extent)`. The existing `face` token can address the aggregate packed face arrays; its element count is the common size of `face:loopCount`, `face:surfaceType`, and `face:trimType`. In both cases indices are zero-based, must be unique within a subset, must lie within the corresponding element range, and refer to the current packing order rather than persistent object identifiers.
+
+Stock _UsdGeomSubset_ has no element-count dispatch for _UsdSolidBrepArray_. Recognizing a `brep` element type, and reporting how many `face` elements a _BrepArray_ contains, can be added to UsdSolid or OpenUSD later. Until then, UsdSolid-aware consumers that author subsets can perform the equivalent bounds and family validation.
+
+Material-binding subsets use `familyName = "materialBind"`, as required by _UsdShadeMaterialBindingAPI_. Their family type is `nonOverlapping`, or `partition` when every element of the selected `elementType` belongs to exactly one subset; it must not be `unrestricted`. A single element must not receive overlapping material assignments within that family. Family membership is evaluated separately for each `elementType`.
+
+When a `brep` subset is used, material resolution proceeds from the most specific applicable binding to the least specific: a `face` subset binding overrides a `brep` subset binding for the packed Brep containing that face, and a `brep` subset binding overrides a material bound directly to the _BrepArray_ prim. A direct _BrepArray_ material binding is the fallback for elements not covered by a more specific subset binding.
+
 #### Brep geometry in USD
 
-There are 4 types of geometry stored along with the _UsdSolidBrepArray_.
+There are four categories of geometry stored along with the _UsdSolidBrepArray_.
 The simplest is the vertex location, which is stored as a point3d.
-An edge needs a curve and a face needs a surface to have shape, so curves and surfaces are applied APIs, where owning Edges and Faces indicate which geometry gives them shape.
-UVTrimCurves are the fourth geometry object, also an applied API.
-They are the projection of the edge curves onto the face surfaces.
+An edge needs a curve and a face needs a surface to have shape, so curves and surfaces are applied APIs, where owning edges and faces indicate which packed geometry gives them shape.
+UV trim curves are the fourth geometry category and use a single-apply API.
+They represent face-bounding edge curves in the parameter spaces of their owning face surfaces.
 
 #### Geometry type extensions
 
@@ -256,7 +271,7 @@ Not yet included at this stage of the proposal is the _USD_ implementation of th
 The definitions of the PRC geometry types listed above can be found in the[ PRC specification.](https://docs.techsoft3d.com/exchange/2024/_downloads/a7028c5c324de43fc7d5083bfa100c2a/SC2N570-PRC-WD.pdf)
 Having reviewed the definitions, we see no issues with the potential implementation.
 Care will be taken to ensure proper architecture.
-Each geometry type definition will be another applied API.
+Each geometry type definition will be an applied API of the appropriate single- or multiple-apply form.
 The attributes will be compact definitions of the parameterized shape, allowing multiple geometries of one type to be defined within the finite set of attributes.
 
 #### Modeling Breps on a UsdStage
@@ -267,8 +282,10 @@ Creating schemas for the 11 topology and use objects in the Brep model will allo
 #### Trimming curves
 
 Optional trim curves can be included similarly to curve and surface geometry.
-The edgeuse defines the connection between a given edge and face; the edgeuse stores an index for the associated trimming curve applied API.
-Trim curves are optional in this Brep model because the edge curve defines the model truth, but trim curves are useful for, e.g., speeding up tessellation algorithms.
+The edgeuse defines the connection between a given edge and face. The UV NURBS API has one positional `(vertexCount, order)` record for every stored edgeuse, in edgeuse order. `(0, 0)` means that edgeuse has no authored trim curve and contributes no control vertices, weights, or knots; a nonzero record has order at least 2 and contributes the corresponding packed data. There is no separate trim-curve index.
+Trim curves are optional in this Brep model because the 3D edge curve defines the model truth, but trim curves are useful for, e.g., speeding up tessellation algorithms. Wire edges are not face boundaries and therefore have no UV trim curves.
+
+When a trim is present, its parameter interval need not equal the interval or speed of the associated 3D edge curve. Correspondence is evaluated at the same normalized parameter fraction, reversing the 3D edge fraction when `edgeuse:orientationType` is `opposite`. Lifting the UV trim through the owning face surface must agree pointwise with the 3D edge within `brep:intersectTol3d`.
 
 
 ### Flexible design possibilities
@@ -376,10 +393,10 @@ Last, the CAD assembly structure should work with constraints imposed by externa
 ### Tolerance
 
 A valid Brep will have a single tolerance number that it conforms to.
-Any two topologically connected geometric entities will have a maximum gap size less than the given tolerance.
-This includes trim curves, which must be within tolerance to both the surface and projected curve.
-Degenerate geometry is not allowed, where degeneracy is measured against tolerance.
-All unconnected topologic entities must have a minimum  gap greater than tolerance.
+Any two topologically connected geometric entities have a maximum gap less than or equal to the given tolerance.
+This includes an authored UV trim lifted through its face surface, which must agree with the associated 3D edge curve within tolerance.
+Distinct, topologically unconnected entities have a minimum gap greater than tolerance.
+Curve or surface geometry that is degenerate for its declared dimension, including zero-length curves and zero-area surfaces, is not allowed. Point geometry, vertex loops, and point shells are intentional lower-dimensional representations rather than degenerate curves or surfaces. Likewise, a parameter value that selects a documented analytic specialization is valid when the resulting geometry retains the dimension required by its topology.
 The specific rules are enumerated in the [Rules and requirements](#rules-and-requirements) section below.
 
 
@@ -402,48 +419,74 @@ As adoption of this schema grows, we hope to find that 3rd party geometry modeli
 #### Rules and requirements
 
 Here we record the rules and requirements of a valid Usd Brep model.
-These rules will be included in the schema prior to publishing.
+These requirements supplement the property-level requirements in
+[`schema.usda`](./schema.usda). The effective contract is the union of both
+sources: a requirement need not be duplicated, but overlapping statements must
+agree.
 
 1. Brep
     1. All self-intersections are marked with appropriate topology, including:
         1. Any face-face intersections have an edge and/or vertex
         1. Any edge-edge intersections have a vertex
+    1. Objects belonging to each Brep are consecutive in the aggregate arrays. `brep:regionCount` and the nested ownership counts define the corresponding occurrence slices.
+    1. Every topology record is reachable from exactly one Brep through these ownership counts and references; orphan records have no defined Brep membership.
 1. Regions
-    1. All regions are separated by closed shells
+    1. The first region packed for each Brep is its infinite void region.
+    1. A shell used to separate and classify volumetric regions must be closed and watertight.
+    1. Sheet, wire, and point bodies are supported; their shells do not by themselves enclose a material region and are not subject to the closed-solid requirement.
 1. Shells
-    1. A shell may contain either
-        1. A vertex
-        1. WireEdges and vertices
-        1. or Facesuses and (optional) wireEdges and vertices
+    1. A shell may contain faceuses and optional wire edges, wire edges without faceuses, or one point occurrence.
+    1. A point shell has both `shell:faceuseCount == 0` and `shell:wireEdgeCount == 0`, and `shell:pointType == "BrepPointAPI"`. Exactly one entry in the `shellPoint` instance of `BrepPointAPI` is packed for each such shell, in point-shell occurrence order.
+    1. An empty shell is invalid. If both counts are zero, `shell:pointType` must identify a supported point API.
+    1. For a shell containing faceuses or wire edges, `shell:pointType` is ignored and the shell contributes no `shellPoint` entry. Vertex records referenced by its edges remain in the ordinary vertex arrays.
 1. Faceuses
     1. The "same" orientated faceuse is on the positive-normal side of the associated surface
+    1. Every face index occurs exactly twice in `faceuse:faceIndex`.
+    1. The two faceuses for each face contain exactly one `same` and one `opposite` value in `faceuse:orientationType`.
 1. Faces
-    1. The face range must be a subset of the surface range
+    1. The face range must lie within the active parameter domain of the support surface.
     1. No sliver faces (a face is a sliver if it is contained in a pipe with radius = tolerance)
     1. No faces with area less than tolerance^2
-    1. A face has a single outer loop (seam edges are required)
+    1. A face has a single outer loop.
     1. The first loop listed is the outer loop.
+    1. When a face closes across a periodic boundary of its surface, the identified boundary is represented explicitly by a seam edge. Periodic geometry does not require a seam where the face does not use that periodic boundary.
+    1. In each periodic parameter direction, the face range lies within one contiguous period window and spans no more than one period. The window may be translated; it is not required to begin at zero.
+    1. The face range and all authored face-local parameter data, including both representations of a periodic seam, use the same translated parameter-space lift. Period-equivalent values from a different window must be remapped before authoring.
 1. Loops
     1. A loop may contain either
-        1. A vertex (degenerate inner loop on a face)
-        1. or one or more edgeuses
+        1. A vertex (a zero-edge inner loop on a face)
+        1. or one or more edgeuses forming a cyclic head-to-tail chain, including the last edgeuse back to the first
+    1. A vertex loop is a supported topological boundary representation and does not imply a zero-length edge.
+1. Edgeuses
+    1. For each edge, the stored edgeuse records that reference it form one closed right-hand-rule cycle under `edgeuse:nextRadialEUIndex`.
+    1. That cycle contains every stored occurrence of the edge exactly once and contains no record that references another edge.
+    1. The cycle may have any positive length: one occurrence supports a lamina boundary, two support the usual manifold or seam cases, and three or more support a non-manifold radial edge.
+    1. Distinct stored occurrences may refer to the same face, as required for seams and struts; the cycle visits face-edge occurrences rather than unique faces.
 1. Edges
-    1. The edge range must be a subset of the curve range
+    1. Each edge or wire-edge range must lie within the active parameter domain of its referenced curve.
     1. No edges contained in a sphere of radius = tolerance
     1. The orientation of the edge is the same as its curve
     1. The curve runs from the start vertex to the end vertex (possibly through either vertex)
 1. Surfaces
     1. No sliver surfaces (a surface is a sliver if it is contained in a pipe with radius = tolerance)
     1. No surface with area less than tolerance^2
+    1. An analytic parameterization must not collapse the image of the face domain to a curve or point. Isolated parameter singularities are permitted. A cone with zero semi-angle is valid and represents a cylinder.
 1. Curves
     1. No edges contained in a sphere of radius = tolerance
     1. Curve orientation is with the parameterization
+1. NURBS
+    1. Curve order and both surface orders must be at least 2 and no greater than the corresponding control-vertex count.
+    1. A NURBS curve with order _k_ and _n_ control vertices has active parameter domain `[knots[k - 1], knots[n]]`; a NURBS surface applies the analogous rule independently in U and V.
+    1. NURBS periodicity and period are geometric properties inferred from the authored NURBS representation; no separate periodicity flag or period value is authored.
+    1. 3D NURBS control points need not lie within a Brep extent. Validity is determined from the evaluated curve or surface, not the control polygon.
 1. Trim Curves
-    1. An edge or wireedge type edgeuse must be represented with NURBS
-    1. The control points need not be constrained to lie on the surface, but the curve must
+    1. UV trim curves are optional and apply only to face-bounding edgeuses; wire edges have no UV trim curves.
+    1. The UV NURBS arrays contain one positional `(vertexCount, order)` record per stored edgeuse. `(0, 0)` denotes an absent trim; any present trim has order at least 2. There is no separate trim index.
+    1. UV trim control points need not lie within the face range, but they use its selected parameter-space lift. The evaluated UV curve must lie in the face domain and lift through the face surface to the associated 3D edge within `brep:intersectTol3d`.
+    1. UV and 3D parameter intervals and speeds may differ. Their points correspond by normalized parameter fraction, with the 3D edge fraction reversed for an `opposite` edgeuse.
 1. Range
     1. For any range _[a, b]_ it must be that _b > a_
-    1. The range on periodic geometry must have length <= period
+    1. The range on periodic geometry must have length <= period; translated period windows are valid subject to the face-local consistency rule above.
 
 
 
@@ -531,7 +574,7 @@ def Xform "World"
         uniform uint[] face:loopCount = [1, 1, 1, 1, 1, 1]
         uniform double2[] face:range = [(0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1)]
         uniform token[] face:surfaceType = ["BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI"]
-        uniform token[] face:trimType = ["general", "general", "general", "general", "general", "general"]
+        uniform token[] face:trimType = ["rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular"]
         uniform uint[] faceuse:faceIndex = [5, 4, 2, 0, 3, 1, 5, 1, 4, 0, 3, 2]
         uniform token[] faceuse:orientationType = ["same", "same", "same", "same", "same", "same", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite"]
         uniform uint[] loop:edgeuseCount = [4, 4, 4, 4, 4, 4]
@@ -605,7 +648,7 @@ def Xform "World"
         uniform uint[] face:loopCount = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         uniform double2[] face:range = [(0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1)]
         uniform token[] face:surfaceType = ["BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI"]
-        uniform token[] face:trimType = ["general", "general", "general", "general", "general", "general", "general", "general", "general", "general", "general"]
+        uniform token[] face:trimType = ["rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular"]
         uniform uint[] faceuse:faceIndex = [5, 4, 2, 0, 1, 6, 7, 8, 9, 10, 5, 1, 4, 0, 3, 2, 10, 8, 7, 6, 9, 3]
         uniform token[] faceuse:orientationType = ["same", "same", "same", "same", "same", "same", "same", "same", "same", "same", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "same"]
         uniform uint[] loop:edgeuseCount = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
@@ -630,7 +673,7 @@ def Xform "World"
 
 What changes vs. [Cube](#cube): a manifold cube that contains a spherical void — a hollow pocket inside the solid. This example demonstrates how the schema represents interior cavities using multiple shells on a region.
 
-The Brep has three regions: the infinite void outside, the solid cube, and the interior void. The solid region is bounded by _two_ shells: an outer shell of 6 cube faces and an inner shell of a single spherical face. `region:shellCount` encodes this as `[1, 2, 1]` — the two one-shell regions are the infinite void and the interior void, and the two-shell middle entry is the solid. Per the [Design](#design) section, the outer shell of a region is listed first; any subsequent shells are inner shells defining cavities.
+The Brep has three regions: the infinite void outside, the solid cube, and the interior void. The solid region is bounded by _two_ shells: an outer shell of 6 cube faces and an inner shell of a single spherical face. `region:shellCount` encodes this as `[1, 2, 1]` — the two one-shell regions are the infinite void and the interior void, and the two-shell middle entry is the solid. Per the [Design](#design) section, the outer closed shell of a volumetric region is listed first; subsequent closed shells are inner shells defining cavities.
 
 ![Cube With Internal Void](images/cubevoid.png "Cube With Internal Void")
 
@@ -676,7 +719,7 @@ def Xform "World"
         uniform uint[] face:loopCount = [1, 1, 1, 1, 1, 1, 1]
         uniform double2[] face:range = [(0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1)]
         uniform token[] face:surfaceType = ["BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI"]
-        uniform token[] face:trimType = ["general", "general", "general", "general", "general", "general", "general"]
+        uniform token[] face:trimType = ["rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "general"]
         uniform uint[] faceuse:faceIndex = [5, 4, 2, 0, 3, 1, 5, 1, 4, 0, 3, 2, 6, 6]
         uniform token[] faceuse:orientationType = ["same", "same", "same", "same", "same", "same", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "same", "opposite"]
         uniform uint[] loop:edgeuseCount = [4, 4, 4, 4, 4, 4, 2]
@@ -698,9 +741,9 @@ def Xform "World"
 
 ### BrepArray with multiple Breps, individual colors
 
-What changes vs. the preceding examples: a single _BrepArray_ prim that packs two Breps, with distinct materials bound to each. This example demonstrates the array semantics described in [Flexible design possibilities](#flexible-design-possibilities) — a prim can hold more than one Brep — and the use of _GeomSubset_ to bind materials to individual Breps within that prim.
+What changes vs. the preceding examples: a single _BrepArray_ prim that packs two Breps, with distinct materials bound to each. This example demonstrates the array semantics described in [Flexible design possibilities](#flexible-design-possibilities) — a prim can hold more than one Brep — and _GeomSubset_ could later bind materials to individual Breps within that prim. The `brep` element type shown here is optional and is not required by this proposal.
 
-The two cubes are geometrically independent (they do not share topology, unlike [Non-manifold cubes](#non-manifold-cubes)). All per-Brep arrays (`brep:regionCount`, `brep:*Extent`) are length 2; the topology arrays concatenate the two Breps' objects in order, and the per-Brep counts (`brep:*Count`) describe the split.
+The two cubes are geometrically independent (they do not share topology, unlike [Non-manifold cubes](#non-manifold-cubes)). The per-Brep arrays `brep:regionCount`, `brep:intersectTol3d`, and the two-corners-per-Brep `brep:extent` describe two Breps. The topology arrays concatenate the two Breps' objects in order. `brep:regionCount` identifies each Brep's region slice, and the nested region, shell, faceuse, face, loop, and edgeuse counts and references recover the remaining ownership and occurrence boundaries; there is no generic `brep:*Count` family.
 
 ![BrepArray](images/BrepArray.png "BrepArray with multiple Breps")
 
@@ -747,7 +790,7 @@ def Xform "World"
         uniform uint[] face:loopCount = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         uniform double2[] face:range = [(0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1)]
         uniform token[] face:surfaceType = ["BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI"]
-        uniform token[] face:trimType = ["general", "general", "general", "general", "general", "general", "general", "general", "general", "general", "general", "general"]
+        uniform token[] face:trimType = ["rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular"]
         uniform uint[] faceuse:faceIndex = [5, 4, 2, 0, 3, 1, 5, 1, 4, 0, 3, 2, 11, 10, 8, 6, 9, 7, 11, 7, 10, 6, 9, 8]
         uniform token[] faceuse:orientationType = ["same", "same", "same", "same", "same", "same", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite", "same", "same", "same", "same", "same", "same", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite"]
         uniform uint[] loop:edgeuseCount = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
@@ -761,12 +804,14 @@ def Xform "World"
         uniform token[] wireEdge:curveType = []
         uniform double[] wireEdge:range = []
         uniform int2[] wireEdge:vertexIndices = []
+        uniform token subsetFamily:materialBind:familyType = "partition"
 
         def GeomSubset "subset_0" (
             prepend apiSchemas = ["MaterialBindingAPI"]
         )
         {
             uniform token elementType = "brep"
+            uniform token familyName = "materialBind"
             uniform int[] indices = [0]
             rel material:binding = </World/Looks/Black>
         }
@@ -776,6 +821,7 @@ def Xform "World"
         )
         {
             uniform token elementType = "brep"
+            uniform token familyName = "materialBind"
             uniform int[] indices = [1]
             rel material:binding = </World/Looks/Green>
         }
@@ -859,7 +905,7 @@ def Xform "World"
         uniform uint[] face:loopCount = [1, 1, 1, 1, 1, 1]
         uniform double2[] face:range = [(0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1), (0, 0), (1, 1)]
         uniform token[] face:surfaceType = ["BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI", "BrepSurfaceNurbAPI"]
-        uniform token[] face:trimType = ["general", "general", "general", "general", "general", "general"]
+        uniform token[] face:trimType = ["rectangular", "rectangular", "rectangular", "rectangular", "rectangular", "rectangular"]
         uniform uint[] faceuse:faceIndex = [5, 4, 2, 0, 3, 1, 5, 1, 4, 0, 3, 2]
         uniform token[] faceuse:orientationType = ["same", "same", "same", "same", "same", "same", "opposite", "opposite", "opposite", "opposite", "opposite", "opposite"]
         uniform uint[] loop:edgeuseCount = [4, 4, 4, 4, 4, 4]
@@ -874,12 +920,14 @@ def Xform "World"
         uniform token[] wireEdge:curveType = []
         uniform double[] wireEdge:range = []
         uniform int2[] wireEdge:vertexIndices = []
+        uniform token subsetFamily:materialBind:familyType = "partition"
 
         def GeomSubset "subset_0" (
             prepend apiSchemas = ["MaterialBindingAPI"]
         )
         {
             uniform token elementType = "face"
+            uniform token familyName = "materialBind"
             uniform int[] indices = [0, 1, 2]
             rel material:binding = </World/Looks/Black>
         }
@@ -889,6 +937,7 @@ def Xform "World"
         )
         {
             uniform token elementType = "face"
+            uniform token familyName = "materialBind"
             uniform int[] indices = [3, 4, 5]
             rel material:binding = </World/Looks/Green>
         }

@@ -428,9 +428,9 @@ The Geometry Working Group has already developed a detailed draft Brep
 schema built on the Radial Edge Data Model. It addresses many of the
 considerations above:
 
-- A `UsdSolidBrepAPI` multiple-apply schema packs all topology and geometry
-  for a single Brep into one API instance, applied to a `UsdSolidBrepArray`
-  IsA schema.
+- A `UsdSolidBrepArray` IsA schema packs the topology for one or more Breps
+  into shared arrays. Applied geometry schemas pack points, curves, trim
+  curves, and surfaces by topology occurrence and geometry type.
 - Geometry types are derived from the PRC specification (ISO 14739-1:2014),
   providing a standards-based catalog of curves, surfaces, and volumes.
 - Double precision is used for geometric data.
@@ -534,12 +534,12 @@ well-defined interiors and exteriors.
 
 ### Curve
 
-A geometric entity that maps points on a closed interval of the real
-line into 3D space. In a BRep, curves provide the underlying geometry
-for edges, with each edge referencing a specific bounded portion of a
-curve defined by parameter range. Common curve types include lines,
-circles, ellipses, and NURBS. The same curve may be shared by multiple
-edges that reference different parameter ranges.
+A geometric entity that maps a one-dimensional parameter domain into 3D
+space. The domain may be bounded, unbounded, or periodic. In a BRep,
+curves provide the underlying geometry for edges and wire edges. Each edge
+or wire edge has associated curve geometry and a parameter range defining
+the bounded portion it uses. Common curve types include lines, circles,
+ellipses, and NURBS.
 
 ### Edge
 
@@ -554,10 +554,11 @@ self-intersecting.
 A structure indicating how a loop uses each edge comprising it. Each
 edgeuse is owned by a loop and references a single edge, with an
 orientation flag indicating traversal direction relative to the
-underlying curve. Each edgeuse also has an associated trim curve that
-maps the edge into the face's surface parameter space. Edgeuses are
-conceptually related to "coedges," "fins," "links," or "winged edges"
-in various BRep implementations.
+underlying curve. An edgeuse may also have an optional associated trim
+curve that maps the authoritative 3D edge into the face's surface parameter
+space. The 3D edge remains the model truth. Edgeuses are conceptually
+related to "coedges," "fins," "links," or "winged edges" in various BRep
+implementations.
 
 ### Face
 
@@ -584,33 +585,38 @@ aspect.
 
 ### Loop
 
-A closed sequence of connected edges, where each edge is referenced
-indirectly by an edgeuse. Loops serve as boundaries for faces. An outer
-loop defines the external boundary of a face, while inner loops
-represent holes or voids. Loop orientation (winding order) is
-significant for determining which side of the boundary is interior.
+A face-boundary component. It is normally a closed sequence of connected
+edges, where each edge is referenced indirectly by an edgeuse. A collapsed
+inner boundary may instead be represented by a single vertex. An outer loop
+defines the external boundary of a face, while inner loops represent holes or
+voids. Loop orientation (winding order) is significant for determining which
+side of the boundary is interior.
 
 ### Manifold
 
 A topological property of a BRep where each point on the boundary has a
-well-defined local neighborhood. In manifold BReps, each edge is shared
-by exactly two faces. Non-manifold BReps may have edges shared by more
-than two faces (spine edges), edges connected to only one face (laminar
-edges), or vertices where multiple disconnected faces meet.
+well-defined local neighborhood. On a closed manifold boundary, each edge has
+exactly two face-side connections, counting multiplicity; a seam may therefore
+connect to the same face twice. Non-manifold BReps may have edges with more
+than two face-side connections (spine edges), open-sheet edges with only one
+face-side connection (laminar edges), or vertices where multiple disconnected
+faces meet.
 
 ### Region
 
 A connected subset of 3D space that classifies points as being either
-"in" or "out." Regions are owned by BReps and composed of shells. The
-first shell of a region defines the outer boundary; additional shells
-represent internal boundaries. Some BRep implementations refer to
-regions as "lumps."
+"in" or "out." Regions are owned by BReps and own shells. For a
+volumetric region, the first closed shell defines the outer boundary and
+additional closed shells represent internal boundaries. Non-separating
+sheet, wire, and point shells may instead belong to the infinite region
+without defining a new region boundary. Some BRep implementations refer
+to regions as "lumps."
 
 ### Shell
 
-A maximal connected set of faces and wires. Shells are owned by regions
-and organize the boundary topology. A shell can be closed (forming a
-complete boundary) or open (with free edges).
+A maximal connected set of faces and wires, or an isolated point shell.
+Shells are owned by regions and organize the boundary topology. A shell
+can be closed (forming a complete boundary) or open (with free edges).
 
 ### Solid
 
@@ -618,6 +624,15 @@ A region of 3D space with a well-defined interior and volume, bounded by
 one or more closed shells. The outermost shell defines the exterior
 boundary; inner shells represent voids or cavities. For a solid to be
 well-defined, its boundary shells must be watertight.
+
+### Strut Edge
+
+In face-boundary topology, a strut edge has an endpoint where the face loop
+does not continue onto another edge. The loop traverses the edge twice in
+opposite directions, so the strut contributes no enclosed area and may
+represent the end of a crack in the face. This is an incidence
+classification, not another name for a wire edge; wire edges have no
+face-loop incidence.
 
 ### Surface
 
@@ -636,11 +651,12 @@ define orientations and connections.
 
 ### Trim Curve
 
-A trim curve maps points in 2D space to surface parameters (u, v). Trim
-curves provide the 2D geometry associated with edgeuses, defining how
-edges bound faces in the face's surface parameter space. Trim curves
-enable faces to represent bounded regions of surfaces, allowing complex
-trimmed shapes beyond simple rectangular parameter regions.
+A trim curve maps a one-dimensional parameter to surface parameters
+(u, v). When authored, trim curves provide optional 2D geometry associated
+with edgeuses, describing how edges bound faces in the face's surface
+parameter space. The 3D edge geometry remains authoritative. An authored
+trim curve is a tolerance-constrained face-parameter-space representation
+of that edge.
 
 ### Vertex
 
